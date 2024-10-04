@@ -1,3 +1,4 @@
 node_modules/
 *.local
 .env.notionautomation-78415
+.env
