@@ -5,7 +5,9 @@ const functions = require("firebase-functions");
 const dayjs = require("dayjs");
 const utc = require("dayjs/plugin/utc");
 const timezone = require("dayjs/plugin/timezone");
+const customParseFormat = require("dayjs/plugin/customParseFormat");
 
+dayjs.extend(customParseFormat);
 dayjs.extend(utc);
 dayjs.extend(timezone);
 dayjs.tz.setDefault("Asia/Tokyo");
@@ -29,23 +31,35 @@ exports.updateNotionDatabases =
       // Notionからデータベースの情報を取得
 
       const now = dayjs.tz();
-      const thisMonth = now.format("M月");
+      const thisYear = now.format("YYYY年");
+      // const thisMonth = now.format("M月");
+      const thisMonth = "12月";
 
       const response = await notion.databases.query({
         database_id: fixedCostDBId.value(),
         filter: {
-          or: [
+          and: [
             {
-              property: "実行月",
-              rich_text: {
-                contains: "毎月",
+              property: "終了",
+              checkbox: {
+                "equals": false,
               },
             },
             {
-              property: "実行月",
-              rich_text: {
-                contains: thisMonth,
-              },
+              or: [
+                {
+                  property: "実行月",
+                  rich_text: {
+                    contains: "毎月",
+                  },
+                },
+                {
+                  property: "実行月",
+                  rich_text: {
+                    contains: thisMonth,
+                  },
+                },
+              ],
             },
           ],
         },
@@ -57,10 +71,17 @@ exports.updateNotionDatabases =
         ],
       });
 
-      response.results.map(async (result) => {
-        console.log(result.properties["項目名"].title[0].text.content);
-        await notion.pages.create({
-          parent: {database_id: incomeExpenseDBId.value()},
+      // todo: プロパティ名を変更してもソースコードを変えなくて良いように、プロパティ名を取得してそれをセットするようにする.
+      const processedDataList = response.results.map((result) => {
+        const jpDateString =
+          thisYear + thisMonth +
+          result.properties["実行日"].rich_text[0].text.content;
+
+        console.log(jpDateString);
+        const settlementDateString =
+          dayjs(jpDateString, "YYYY年M月D日");// .format("YYYY-MM-DD");
+
+        return {
           properties: {
             "項目名": {
               "title": [
@@ -71,9 +92,25 @@ exports.updateNotionDatabases =
                 },
               ],
             },
+            "収支": {
+              "number": result.properties["収支"].number,
+            },
+            "決済日": {
+              "date": {
+                start: settlementDateString,
+              },
+            },
           },
-        });
+        };
       });
+
+      // データの挿入
+      for (const processedData of processedDataList) {
+        await notion.pages.create({
+          parent: {database_id: incomeExpenseDBId.value()},
+          properties: processedData.properties,
+        });
+      }
 
 
       // データを判定・加工
