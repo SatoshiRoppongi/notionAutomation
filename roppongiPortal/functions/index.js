@@ -32,8 +32,8 @@ exports.updateNotionDatabases =
 
       const now = dayjs.tz();
       const thisYear = now.format("YYYY年");
-      // const thisMonth = now.format("M月");
-      const thisMonth = "12月";
+      const thisMonth = now.format("M月");
+      // const thisMonth = "12月";
 
       const response = await notion.databases.query({
         database_id: fixedCostDBId.value(),
@@ -95,10 +95,18 @@ exports.updateNotionDatabases =
             "収支": {
               "number": result.properties["収支"].number,
             },
-            "決済日": {
+            "実行年月日": {
               "date": {
                 start: settlementDateString,
               },
+            },
+            "分類": {
+              "select": {
+                name: result.properties["分類"].select.name,
+              },
+            },
+            "固定費": {
+              "checkbox": true,
             },
           },
         };
