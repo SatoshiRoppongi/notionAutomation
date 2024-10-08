@@ -108,6 +108,16 @@ exports.updateNotionDatabases =
             "固定費": {
               "checkbox": true,
             },
+            "決済方法": {
+              "select": {
+                name: result.properties["決済方法"].select.name,
+              },
+            },
+            "出口・入口": {
+              "select": {
+                name: result.properties["出口・入口"].select.name,
+              },
+            },
           },
         };
       });
