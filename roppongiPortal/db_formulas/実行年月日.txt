@@ -3,7 +3,7 @@ if (
   formatDate(prop("固定費実行年月日"), "YYYY年MM月DD日"),
   
   if (
-    and(prop("決済方法") == "現金", not(empty(prop("決済年月日")))),
+    and(includes(["現金", "引き落とし", "Suica", "ポイント"], prop("決済方法")), not(empty(prop("決済年月日")))),
     formatDate(prop("決済年月日"), "YYYY年MM月DD日"),
     
     if (
