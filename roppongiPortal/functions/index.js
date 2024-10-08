@@ -95,7 +95,7 @@ exports.updateNotionDatabases =
             "収支": {
               "number": result.properties["収支"].number,
             },
-            "実行年月日": {
+            "固定費実行年月日": {
               "date": {
                 start: settlementDateString,
               },
