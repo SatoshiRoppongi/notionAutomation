@@ -1,6 +1,7 @@
 const {onSchedule} = require("firebase-functions/v2/scheduler");
 const PDFDocument = require("pdfkit");
 const fs = require("fs");
+const path = require("path");
 
 // 前月の収支をレポートする関数
 // notionDBから取得したデータから表を生成してpdfを生成してlineに送信する
@@ -26,15 +27,18 @@ exports.reportBalance =
       const output = fs.createWriteStream("report.pdf");
       doc.pipe(output);
 
+      // 日本語フォントの読み込み
+      const fontPath = path.join(__dirname, "NotoSansJP-VariableFont_wght.ttf");
+      doc.font(fontPath);
+
       // タイトル
-      doc.fontSize(16).text("sample table", {align: "center"});
+      doc.fontSize(16).text("サンプルテーブル", {align: "center"});
       doc.moveDown();
       // 表をPDFに追加
       createTable(doc, data);
 
       // PDFの終了
       doc.end();
-
 
       // 終了後の処理
       output.on("finish", () => {
