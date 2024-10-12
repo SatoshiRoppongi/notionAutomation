@@ -19,9 +19,16 @@
     "functions": {
       "port": 5001
     },
+    "storage": {
+      "port": 9199,
+      "rules": "./functions/storage.rules"
+    },
     "ui": {
       "enabled": true
     },
     "singleProjectMode": true
+  },
+  "storage": {
+    "rules": "storage.rules"
   }
 }
