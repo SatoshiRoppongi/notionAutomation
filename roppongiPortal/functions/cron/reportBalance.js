@@ -1,4 +1,5 @@
 const {onSchedule} = require("firebase-functions/v2/scheduler");
+const {Client} = require("@notionhq/client");
 const {defineString} = require("firebase-functions/params");
 const PDFDocument = require("pdfkit");
 const fs = require("fs");
@@ -15,10 +16,12 @@ const storage = isEmulator ?
     new Storage({apiEndpoint: "http://localhost:9199"}) :
     new Storage(); // 本番環境
     */
+const notionApiKey = defineString("NOTION_API_KEY");
 const storage = new Storage();
 const bucketName = defineString("BUCKET_NAME");
 const lineAccessToken = defineString("LINE_ACCESS_TOKEN");
 const lineGroupId = defineString("LINE_GROUP_ID");
+const balanceDBId = defineString("BALANCE_DB_ID");
 
 // 前月の収支をレポートする関数
 exports.reportBalance =
@@ -26,6 +29,13 @@ exports.reportBalance =
       timeZone: "Asia/Tokyo",
       schedule: "0 8 1 * *", // 毎月1日 8:00に実行
     }, async (context) => {
+    // Notionクライアントの初期化
+      const notion = new Client({auth: notionApiKey.value()});
+      // Notionからデータベースの情報を取得
+      const response = await queryBalanceDB(notion);
+      // responseをごにょごにょ
+      console.log(response);
+
       const data = {
         columns: ["hoge", "huga", "piyo"],
         rows: [
@@ -73,6 +83,52 @@ exports.reportBalance =
     });
 
 /**
+ *
+ * @param {Client} notion notionクライアント
+ */
+async function queryBalanceDB(notion) {
+  const response = await notion.databases.query({
+    database_id: balanceDBId.value(),
+    filter: {
+      // todo: 適切なフィルタに修正する
+      and: [
+        {
+          property: "終了",
+          checkbox: {
+            "equals": false,
+          },
+        },
+        {
+          or: [
+            {
+              property: "実行月",
+              rich_text: {
+                contains: "毎月",
+              },
+            },
+            {
+              property: "実行月",
+              rich_text: {
+                // contains: thisMonth,
+              },
+            },
+          ],
+        },
+      ],
+    },
+    sorts: [
+      {
+        property: "実行日",
+        direction: "ascending",
+      },
+    ],
+  });
+
+  return response;
+}
+
+
+/**
  * 表を描画する関数
  * @param {PDFDocument} doc PDFドキュメント
  * @param {object} data 表の元となるデータ
@@ -112,7 +168,9 @@ async function sendLineMessage(pdfUrl) {
     messages: [
       {
         type: "text",
-        text: `前月の収支レポートです。以下のリンクから確認できます: ${pdfUrl}`,
+        text: `
+
+        前月の収支だよ〜 詳細は以下URLから確認してね！: ${pdfUrl}`,
       },
     ],
   };
