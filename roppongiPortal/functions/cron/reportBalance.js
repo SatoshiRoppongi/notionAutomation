@@ -66,8 +66,8 @@ exports.reportBalance =
       doc.font(fontPath);
 
       // タイトルと表を描画
-      doc.fontSize(8)
-          .text(`${targetDate.format("YYYY年M日")}の収支`, {align: "center"});
+      doc.fontSize(7)
+          .text(`${targetDate.format("YYYY年M月")}の収支`, {align: "center"});
       doc.moveDown();
       createTable(doc, data);
       doc.end();
@@ -168,11 +168,9 @@ async function makeReport(notion, targetDate) {
       } else {
         summaryInfo.variableCost += amount;
       }
-
-      // カテゴリ別集計
-      categorySumsObj[properties["分類"].select.name] +=
-        properties["収支"].number;
     }
+    // カテゴリ別集計
+    categorySumsObj[properties["分類"].select.name] += amount;
 
     // レポートで出力する順番にカラムを並び替える
     // レポートで出力する形式に変換する
@@ -219,7 +217,6 @@ async function makeReport(notion, targetDate) {
   return allInfo;
 }
 
-
 /**
  * 表を描画する関数
  * @param {PDFDocument} doc PDFドキュメント
@@ -227,22 +224,52 @@ async function makeReport(notion, targetDate) {
  */
 function createTable(doc, data) {
   const tableTop = 100;
-  const columnSpacing = 150;
-  const rowHeight = 30;
+  const columnSpacing = 70;
+  const rowHeight = 15;
+  const columnWidth = 70; // 列幅の定義
 
   let y = tableTop;
-  data.columns.forEach((header, i) => {
-    doc.text(header, i * columnSpacing + 50, y);
-  });
-  y += rowHeight;
 
+  // ヘッダー行の罫線
+  data.columns.forEach((header, i) => {
+    const x = i * columnSpacing + 50;
+    doc.text(header, x, y);
+
+    // ヘッダーの下に二重線を描画
+    const lineY = y + rowHeight;
+
+    // 1本目の線
+    doc
+        .moveTo(x, lineY)
+        .lineTo(x + columnWidth, lineY)
+        .stroke();
+
+    // 2本目の線（少し下に引く）
+    const secondLineY = lineY + 2; // 間隔を2ポイントに設定
+    doc
+        .moveTo(x, secondLineY)
+        .lineTo(x + columnWidth, secondLineY)
+        .stroke();
+  });
+
+  y += rowHeight + 2; // 2本目の線の分だけ余白を追加
+
+  // データ行の描画と罫線
   data.rows.forEach((row) => {
     row.forEach((cell, i) => {
-      doc.text(cell, i * columnSpacing + 50, y);
+      const x = i * columnSpacing + 50;
+      doc.text(cell, x, y);
+
+      // 各セルに罫線を描画
+      doc
+          .moveTo(x, y + rowHeight) // 罫線の開始点
+          .lineTo(x + columnWidth, y + rowHeight) // 罫線の終了点
+          .stroke(); // 線を描画
     });
     y += rowHeight;
   });
 }
+
 
 /**
  * LINEにメッセージを送信する関数
@@ -260,8 +287,13 @@ async function sendLineMessage(
   };
 
   const categoryForReport = Object.entries(categorySumsObj)
-      .map(([key, value]) => `${key}：${value}円`)
-      .join("\n  ");
+      .map(([key, value]) => `・${key}：${value}円`)
+      .join("\n      ");
+
+  // 支出合計
+  const expense = summaryInfo.fixedCost + summaryInfo.variableCost;
+  // 収支
+  const balance = summaryInfo.income + expense;
 
   const data = {
     to: lineGroupId.value(),
@@ -269,24 +301,32 @@ async function sendLineMessage(
       {
         type: "text",
         text: `!! これはテスト通知です。内容は正しくありません !!
-${targetDate.format("YYYY年M月")}の収支だよ〜
+🤓${targetDate.format("YYYY年M月")}の収支だよ〜
 
-🟢収入
-${summaryInfo.income}円
-🔴支出
-  🏠固定費
-  ${summaryInfo.fixedCost}円
-  🍞変動費
-  ${summaryInfo.variableCost}円
-    
-  [カテゴリ別]
-  ${categoryForReport}
+💴収支
+  ${balance}円 ${balance > 0 ? "😆やった！プラスだ！" : "😭マイナスだよ〜"}
+  
+📈収入
+  ${summaryInfo.income}円
+
+📉支出
+  ${expense}円
+  【内訳】
+    🏠固定費
+      ${summaryInfo.fixedCost}円
+    🍞変動費
+      ${summaryInfo.variableCost}円
+  
+    📝【カテゴリ別】
+      ${categoryForReport}
 
 内訳の詳細は以下URLから確認してね！:
 ${pdfUrl}`,
       },
     ],
   };
+
+  console.log(data.messages);
 
   try {
     await axios.post(lineApiUrl, data, {headers});
