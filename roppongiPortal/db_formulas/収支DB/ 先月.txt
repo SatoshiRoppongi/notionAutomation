@@ -1,0 +1,1 @@
+formatDate(prop("実行年月日"), "YYYYMM") == formatDate(dateAdd(now(),-1,"month"), "YYYYMM")
