@@ -43,7 +43,7 @@ if (
           ),
           if(and(prop("決済方法") == "楽天カード(一般)", not(empty(prop("決済年月日")))),
 	                       parseDate(formatDate(dateAdd(prop("決済年月日"), 1, "months"), "YYYY-MM-27")),
-	now())
+	prop("Created Time"))
 					)
         )
       )
