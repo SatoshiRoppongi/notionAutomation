@@ -175,7 +175,7 @@ async function makeReport(notion, targetDate) {
   // レコードを精査して、各種情報を集計する
   for (const record of records) {
     const properties = record.properties;
-    const amount = properties["収支"].number;
+    const amount = properties["収支"].formula.number;
     // 収入
     if (amount > 0 ) {
       summaryInfo.income += amount;
@@ -212,7 +212,9 @@ async function makeReport(notion, targetDate) {
               retValue = property.select ? property.select.name: "不明";
               break;
             case "formula":
-              retValue = property.formula.string;
+              retValue = property.formula.type === "date" ?
+                property.formula.date.start :
+                property.formula[property.formula.type];
               break;
             case "checkbox":
               retValue = property.checkbox ? "はい" : "いいえ";
