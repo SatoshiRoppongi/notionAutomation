@@ -94,8 +94,8 @@ exports.fixedCostsToBalanceDB =
                 },
               ],
             },
-            "収支": {
-              "number": result.properties["収支"].number,
+            "入力金額": {
+              "number": Math.abs(result.properties["収支"].number),
             },
             "固定費実行年月日": {
               "date": {
@@ -109,6 +109,14 @@ exports.fixedCostsToBalanceDB =
             },
             "固定費": {
               "checkbox": true,
+            },
+            "消費税率": {
+              "select": {
+                name: "税込",
+              },
+            },
+            "収入": {
+              "checkbox": result.properties["収支"].number > 0,
             },
             "決済方法": {
               "select": {
