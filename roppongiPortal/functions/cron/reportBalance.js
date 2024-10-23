@@ -1,9 +1,6 @@
 const {onSchedule} = require("firebase-functions/v2/scheduler");
 const {Client} = require("@notionhq/client");
 const {defineString} = require("firebase-functions/params");
-const PDFDocument = require("pdfkit");
-const fs = require("fs");
-const path = require("path");
 const {Storage} = require("@google-cloud/storage");
 const axios = require("axios");
 const dayjs = require("dayjs");
@@ -29,7 +26,8 @@ const storage = new Storage();
 const bucketName = defineString("BUCKET_NAME");
 const lineAccessToken = defineString("LINE_ACCESS_TOKEN");
 const lineGroupId = defineString("LINE_GROUP_ID");
-const balanceDBId = defineString("BALANCE_DB_ID");
+// const balanceDBId = defineString("BALANCE_DB_ID");
+const summaryDBId = defineString("SUMMARY_DB_ID");
 
 // 前月の収支をレポートする関数
 exports.reportBalance =
@@ -38,55 +36,16 @@ exports.reportBalance =
       schedule: "0 8 1 * *", // 毎月1日 8:00に実行
     }, async (context) => {
       const targetDate = dayjs.tz().subtract(1, "month");
+      // const targetDate = dayjs.tz();
+
       // Notionクライアントの初期化
       const notion = new Client({auth: notionApiKey.value()});
       // Notionからデータベースから情報を取得して収支サマリーを生成する前月分
-      const allInfo = await makeReport(notion, targetDate);
+      const allInfo = await getReport(notion, targetDate);
       console.log(allInfo);
 
-      // 今月の支出を取得するために、現在の月を引数として再度makeReportを呼び出す
-      const thisMonthDate = dayjs.tz();
-      const thisMonthReport = await makeReport(notion, thisMonthDate);
-
-      const expenseThisMonth = thisMonthReport.summaryInfo.fixedCost +
-                               thisMonthReport.summaryInfo.variableCost;
-
-      console.log("今月の支出: ", expenseThisMonth);
-
-      const data = {
-        columns: allInfo.detailReportsObj.detailReportHeaders,
-        rows: allInfo.detailReportsObj.detailReports,
-      };
-
-      console.log(data);
-
-      // PDFドキュメントの作成
-      const doc = new PDFDocument();
-      const pdfPath = path.join("/tmp", "report.pdf");
-      const output = fs.createWriteStream(pdfPath);
-      doc.pipe(output);
-
-      const fontPath = path.join(__dirname, "NotoSansJP-VariableFont_wght.ttf");
-      doc.font(fontPath);
-
-      // タイトルと表を描画
-      doc.fontSize(7)
-          .text(`${targetDate.format("YYYY年M月")}の収支`, {align: "center"});
-      doc.moveDown();
-      createTable(doc, data);
-      doc.end();
-
-      await new Promise((resolve) => output.on("finish", resolve));
-
-      // Firebase Storageにアップロード
-      const destination = `reports/report-${Date.now()}.pdf`;
-
-      await storage.bucket(bucketName.value()).upload(pdfPath, {
-        destination,
-        metadata: {
-          contentType: "application/pdf",
-        },
-      });
+      // PDFファイル名
+      const destination = `reports/report-${targetDate.format("YYYYMM")}.pdf`;
 
       // アップロードしたファイルの公開URLを取得
       const file = storage.bucket(bucketName.value()).file(destination);
@@ -98,8 +57,7 @@ exports.reportBalance =
           publicUrl,
           allInfo.summaryInfo,
           allInfo.categorySumsObj,
-          targetDate,
-          expenseThisMonth);
+          targetDate);
     });
 
 
@@ -108,191 +66,64 @@ exports.reportBalance =
  * @param {Client} notion notionクライアント
  * @param {dayjs.Dayjs} targetDate 対象年月日
  */
-async function makeReport(notion, targetDate) {
-  // 1日
-  const startOfMonth = targetDate.startOf("month").format("YYYY-MM-DD");
-  // 月末
-  const endOfMonth = targetDate.endOf("month").format("YYYY-MM-DD");
+async function getReport(notion, targetDate) {
+  const targetDateFormatted = targetDate.format("YYYY年MM月");
 
-  const retrieveResults = await notion.databases.retrieve({
-    database_id: balanceDBId.value(),
-  });
-
-  // 定義されている分類の一覧を取得する
-  const categories = retrieveResults.properties["分類"]
-      .select
-      .options;
-
-  // カテゴリをキーとして、その合計金額をバリューとするオブジェクトを定義する
-  // 金額は0で初期化する
-  const categorySumsObj = {};
-  for (const category of categories) {
-    categorySumsObj[category ? category.name : "不明"] = 0;
-  }
 
   const queryResults = await notion.databases.query({
-    database_id: balanceDBId.value(),
+    database_id: summaryDBId.value(),
     filter: {
-      // todo: 適切なフィルタに修正する
-      and: [
-        {
-          property: "実行年月日",
-          date: {
-            on_or_after: startOfMonth,
-          },
-        },
-        {
-          property: "実行年月日",
-          date: {
-            on_or_before: endOfMonth,
-          },
-        },
-      ],
+      property: "年月",
+      rich_text: {
+        contains: targetDateFormatted,
+      },
     },
     sorts: [
       {
-        property: "実行年月日",
+        property: "収支",
         direction: "ascending",
       },
     ],
   });
 
-  const records = queryResults.results;
+  const records = queryResults.results.map((rec) => rec.properties);
 
+  const createSummary = () => ({
+    number: 0, // 金額
+    prevMonthRate: 0, // 前月比%
+    lastYearSameMonthRate: 0, // 前年同月比%
+  });
 
-  // todo: 前月からの増加減少(%)もサマリー情報に含めたい
   const summaryInfo = {
-    "income": 0,
-    "fixedCost": 0,
-    "variableCost": 0,
+    "支出": createSummary(),
+    "収入": createSummary(),
+    "固定費": createSummary(),
+    "変動費": createSummary(),
   };
 
-
-  const detailReportHeaders =
-    ["項目名", "収支", "決済方法", "実行年月日", "分類", "固定費", "出口・入口"];
-  const detailReports = [];
-
-  // レコードを精査して、各種情報を集計する
+  // キー: 分類名, バリュー: 金額
+  const categorySumsObj = {};
   for (const record of records) {
-    const properties = record.properties;
-    const amount = properties["収支"].formula.number;
-    // 収入
-    if (amount > 0 ) {
-      summaryInfo.income += amount;
-    // 支出
+    const categoryName = record["集計項目"].select.name;
+    const balance = record["収支"].number || 0;
+    // 特別な集計項目
+    if (["支出", "変動費", "固定費", "収入"].includes(categoryName)) {
+      summaryInfo[categoryName].number = balance;
+      summaryInfo[categoryName].prevMonthRate = record["前月比"].
+          formula.number * 100;
+      summaryInfo[categoryName].lastYearSameMonthRate = record["前年同期比"].
+          formula.number * 100;
     } else {
-      // 固定費集計
-      if (properties["固定費"].checkbox) {
-        summaryInfo.fixedCost += amount;
-      // 変動費
-      } else {
-        summaryInfo.variableCost += amount;
-      }
+      // カテゴリごとの集計
+      categorySumsObj[categoryName] = balance;
     }
-    // カテゴリ別集計
-
-    const category = properties["分類"].select;
-    categorySumsObj[category ? category.name : "不明"] += amount;
-
-    // レポートで出力する順番にカラムを並び替える
-    // レポートで出力する形式に変換する
-    const arrangedRecordList = detailReportHeaders.map(
-        (propertyName) => {
-          const property = properties[propertyName];
-          let retValue;
-          switch (property.type) {
-            case "title":
-              retValue = property.title[0] ?
-                property.title[0].text.content : "不明";
-              break;
-            case "number":
-              retValue = property.number;
-              break;
-            case "select":
-              retValue = property.select ? property.select.name: "不明";
-              break;
-            case "formula":
-              retValue = property.formula.type === "date" ?
-                property.formula.date.start :
-                property.formula[property.formula.type];
-              break;
-            case "checkbox":
-              retValue = property.checkbox ? "はい" : "いいえ";
-              break;
-            default:
-              retValue = "";
-              break;
-          }
-          return retValue;
-        },
-    );
-    detailReports.push(arrangedRecordList);
   }
 
   const allInfo = {
-    detailReportsObj: {
-      detailReportHeaders,
-      detailReports,
-    },
     summaryInfo,
     categorySumsObj,
   };
-
-
   return allInfo;
-}
-
-/**
- * 表を描画する関数
- * @param {PDFDocument} doc PDFドキュメント
- * @param {object} data 表の元となるデータ
- */
-function createTable(doc, data) {
-  const tableTop = 100;
-  const columnSpacing = 70;
-  const rowHeight = 15;
-  const columnWidth = 70; // 列幅の定義
-
-  let y = tableTop;
-
-  // ヘッダー行の罫線
-  data.columns.forEach((header, i) => {
-    const x = i * columnSpacing + 50;
-    doc.text(header, x, y);
-
-    // ヘッダーの下に二重線を描画
-    const lineY = y + rowHeight;
-
-    // 1本目の線
-    doc
-        .moveTo(x, lineY)
-        .lineTo(x + columnWidth, lineY)
-        .stroke();
-
-    // 2本目の線（少し下に引く）
-    const secondLineY = lineY + 2; // 間隔を2ポイントに設定
-    doc
-        .moveTo(x, secondLineY)
-        .lineTo(x + columnWidth, secondLineY)
-        .stroke();
-  });
-
-  y += rowHeight + 2; // 2本目の線の分だけ余白を追加
-
-  // データ行の描画と罫線
-  data.rows.forEach((row) => {
-    row.forEach((cell, i) => {
-      const x = i * columnSpacing + 50;
-      doc.text(cell, x, y);
-
-      // 各セルに罫線を描画
-      doc
-          .moveTo(x, y + rowHeight) // 罫線の開始点
-          .lineTo(x + columnWidth, y + rowHeight) // 罫線の終了点
-          .stroke(); // 線を描画
-    });
-    y += rowHeight;
-  });
 }
 
 
@@ -302,10 +133,9 @@ function createTable(doc, data) {
  * @param {obj} summaryInfo 収支サマリー情報
  * @param {obj} categorySumsObj カテゴリ別合計
  * @param {dayjs.Dayjs} targetDate 対象年月日
- * @param {number} expenseThisMonth 今月の支出
  */
 async function sendLineMessage(
-    pdfUrl, summaryInfo, categorySumsObj, targetDate, expenseThisMonth) {
+    pdfUrl, summaryInfo, categorySumsObj, targetDate) {
   const lineApiUrl = "https://api.line.me/v2/bot/message/push";
   const headers = {
     "Content-Type": "application/json",
@@ -317,9 +147,21 @@ async function sendLineMessage(
       .join("\n ");
 
   // 支出合計
-  const expense = summaryInfo.fixedCost + summaryInfo.variableCost;
+  const expense = summaryInfo["支出"].number;
+  const expensePrevMonthRate = summaryInfo["支出"].prevMonthRate;
+
+  // 収入
+  const income = summaryInfo["収入"].number;
+  const incomePrevMonthRate = summaryInfo["収入"].prevMonthRate;
   // 収支
-  const balance = summaryInfo.income + expense;
+  const balance = income + expense;
+
+  // 固定費
+  const fixedCost = summaryInfo["固定費"].number;
+  const fixedCostPrevMonthRate = summaryInfo["固定費"].prevMonthRate;
+  // 変動費
+  const variableCost = summaryInfo["変動費"].number;
+  const variableCostPrevMonthRate = summaryInfo["変動費"].prevMonthRate;
 
   const data = {
     to: lineGroupId.value(),
@@ -332,26 +174,23 @@ async function sendLineMessage(
 💴収支
   ${balance}円 ${balance > 0 ? "😆やった！プラスだ！" : "😭マイナスだよ〜"}
   
-📈収入
-  ${summaryInfo.income}円
+📈収入(前月比)
+  ${income}円 (${incomePrevMonthRate}%)
 
-📉支出
-  ${expense}円
+📉支出(前月比)
+  ${expense}円 (${expensePrevMonthRate}%)
   
   【内訳】
     🏠固定費
-      ${summaryInfo.fixedCost}円
+      ${fixedCost}円 (${fixedCostPrevMonthRate}%)
     🍞変動費
-      ${summaryInfo.variableCost}円
+      ${variableCost}円 (${variableCostPrevMonthRate}%)
   
 📝【カテゴリ別】
   ${categoryForReport}
 
 内訳の詳細は以下URLから確認してね！:
 ${pdfUrl}
-
-あと、今月の支出が確定しているのは👇だよ。こっから現金払いの変動費が加わるから注意してね
-${expenseThisMonth}円
 
 `,
       },
