@@ -29,97 +29,155 @@ const bucketName = defineString("BUCKET_NAME");
 const balanceDBId = defineString("BALANCE_DB_ID");
 const summaryDBId = defineString("SUMMARY_DB_ID");
 
+
 // 月別・カテゴリ別集計を行い、MonthlySummaryDB, CategorySummaryDBに反映させる
 // 先月の収支をPDFにまとめ、storageに格納する
-exports.makeSummary =
-    onSchedule({
-      timeZone: "Asia/Tokyo",
-      schedule: "0 1 1 * *", // 毎月1日 1:00に実行
-    }, async (context) => {
-      // const targetDate = dayjs.tz().subtract(1, "month");
-      const targetDate = dayjs.tz();
-      // Notionクライアントの初期化
-      const notion = new Client({auth: notionApiKey.value()});
-      // Notionからデータベースから情報を取得して収支サマリーを生成する前月分
-      const allInfo = await makeReport(notion, targetDate);
+exports.makeSummary = onSchedule({
+  timeZone: "Asia/Tokyo",
+  schedule: "0 1 1 * *", // 毎月1日 1:00に実行
+}, async (context) => {
+  // const targetDate = dayjs.tz().subtract(1, "month");
+  const targetDate = dayjs.tz();
 
-      // PDF作成用
-      const data = {
-        columns: allInfo.detailReportsObj.detailReportHeaders,
-        rows: allInfo.detailReportsObj.detailReports,
-      };
+  // Notionクライアントの初期化
+  const notion = new Client({auth: notionApiKey.value()});
 
-      // PDFドキュメントの作成
-      const doc = new PDFDocument();
-      const pdfPath = path.join("/tmp", "report.pdf");
-      const output = fs.createWriteStream(pdfPath);
-      doc.pipe(output);
+  // 先々月、前年同月の年月テキスト
+  const previousMonthText = targetDate.subtract(1, "month").format("YYYY年MM月");
+  const lastYearSameMonthText = targetDate.
+      subtract(1, "year").format("YYYY年MM月");
 
-      const fontPath = path.join(__dirname, "NotoSansJP-VariableFont_wght.ttf");
-      doc.font(fontPath);
+  // 先々月と前年同月のデータを取得する
+  const previousMonthData = await queryNotionDBForPeriod(
+      notion,
+      previousMonthText,
+      summaryDBId.value());
+  const lastYearSameMonthData = await queryNotionDBForPeriod(
+      notion,
+      lastYearSameMonthText,
+      summaryDBId.value());
 
-      // タイトルと表を描画
-      doc.fontSize(7)
-          .text(`${targetDate.format("YYYY年M月")}の収支`, {align: "center"});
-      doc.moveDown();
-      createTable(doc, data);
-      doc.end();
+  // 必要に応じてデータを処理し、集計項目に基づいて収支を取り出す
+  const previousMonthSummary = {};
+  const lastYearSameMonthSummary = {};
 
-      await new Promise((resolve) => output.on("finish", resolve));
+  previousMonthData.forEach((record) => {
+    const category = record.properties["集計項目"].select.name;
+    previousMonthSummary[category] = record.properties["収支"].number;
+  });
 
-      // Firebase Storageにアップロード
-      const destination = `reports/report-${targetDate.format("YYYYMM")}.pdf`;
+  lastYearSameMonthData.forEach((record) => {
+    const category = record.properties["集計項目"].select.name;
+    lastYearSameMonthSummary[category] = record.properties["収支"].number;
+  });
 
-      await storage.bucket(bucketName.value()).upload(pdfPath, {
-        destination,
-        metadata: {
-          contentType: "application/pdf",
-        },
-      });
+  // Notionからデータベースから情報を取得して収支サマリーを生成する前月分
+  const allInfo = await makeReport(notion, targetDate);
 
-      const insertSummaryObj = allInfo.categorySumsObj;
-      insertSummaryObj["収入"] = allInfo.summaryInfo.income;
-      insertSummaryObj["固定費"] = allInfo.summaryInfo.fixedCost;
-      insertSummaryObj["変動費"] = allInfo.summaryInfo.variableCost;
-      insertSummaryObj["支出"] = insertSummaryObj["固定費"] +
-        insertSummaryObj["変動費"];
+  // PDF作成用
+  const data = {
+    columns: allInfo.detailReportsObj.detailReportHeaders,
+    rows: allInfo.detailReportsObj.detailReports,
+  };
 
-      console.log(insertSummaryObj);
+  // PDFドキュメントの作成
+  const doc = new PDFDocument();
+  const pdfPath = path.join("/tmp", "report.pdf");
+  const output = fs.createWriteStream(pdfPath);
+  doc.pipe(output);
 
-      const processedDataList = Object.keys(insertSummaryObj).map((item) => {
-        return {
-          properties: {
-            "年月": {
-              "title": [
-                {
-                  "text": {
-                    "content": targetDate.format("YYYY年MM月"),
-                  },
-                },
-              ],
-            },
-            "集計項目": {
-              "select": {
-                name: item,
+  const fontPath = path.join(__dirname, "NotoSansJP-VariableFont_wght.ttf");
+  doc.font(fontPath);
+
+  // タイトルと表を描画
+  doc.fontSize(7)
+      .text(`${targetDate.format("YYYY年M月")}の収支`, {align: "center"});
+  doc.moveDown();
+  createTable(doc, data);
+  doc.end();
+
+  await new Promise((resolve) => output.on("finish", resolve));
+
+  // Firebase Storageにアップロード
+  const destination = `reports/report-${targetDate.format("YYYYMM")}.pdf`;
+
+  await storage.bucket(bucketName.value()).upload(pdfPath, {
+    destination,
+    metadata: {
+      contentType: "application/pdf",
+    },
+  });
+
+
+  const insertSummaryObj = allInfo.categorySumsObj;
+  insertSummaryObj["収入"] = allInfo.summaryInfo.income;
+  insertSummaryObj["固定費"] = allInfo.summaryInfo.fixedCost;
+  insertSummaryObj["変動費"] = allInfo.summaryInfo.variableCost;
+  insertSummaryObj["支出"] = insertSummaryObj["固定費"] + insertSummaryObj["変動費"];
+
+  const processedDataList = Object.keys(insertSummaryObj).map((item) => {
+    return {
+      properties: {
+        "年月": {
+          "title": [
+            {
+              "text": {
+                "content": targetDate.format("YYYY年MM月"),
               },
             },
-            "収支": {
-              "number": insertSummaryObj[item],
-            },
+          ],
+        },
+        "集計項目": {
+          "select": {
+            name: item,
           },
-        };
-      });
+        },
+        "収支": {
+          "number": insertSummaryObj[item],
+        },
+        "収支前月": {
+          "number": previousMonthSummary[item] || 0, // 前月分の収支
+        },
+        "収支前年同月": {
+          "number": lastYearSameMonthSummary[item] || 0, // 前年同月分の収支
+        },
+      },
+    };
+  });
 
-      // データの挿入
-      for (const processedData of processedDataList) {
-        await notion.pages.create({
-          parent: {database_id: summaryDBId.value()},
-          properties: processedData.properties,
-        });
-      }
-
-      return null;
+  // データの挿入
+  for (const processedData of processedDataList) {
+    await notion.pages.create({
+      parent: {database_id: summaryDBId.value()},
+      properties: processedData.properties,
     });
+  }
+
+  return null;
+});
+
+
+/**
+ * summaryDBから特定の期間のデータを取得する
+ * @param {Client} notion notionクライアント
+ * @param {string} period 年月 (テキスト形式: YYYY年MM月)
+ * @param {string} summaryDBId summaryDBのID
+ * @return {Promise<Array>} 取得したレコードの配列
+ */
+async function queryNotionDBForPeriod(notion, period, summaryDBId) {
+  // summaryDBから特定の期間（年月テキスト）に一致するデータを取得する
+  const queryResults = await notion.databases.query({
+    database_id: summaryDBId,
+    filter: {
+      property: "年月",
+      rich_text: {
+        equals: period,
+      },
+    },
+  });
+
+  return queryResults.results;
+}
 
 
 /**
