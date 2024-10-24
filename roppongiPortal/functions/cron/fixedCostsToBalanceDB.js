@@ -32,10 +32,10 @@ exports.fixedCostsToBalanceDB =
       const notion = new Client({auth: notionApiKey.value()});
       // Notionからデータベースの情報を取得
 
-      const now = dayjs.tz();
+      const now = dayjs.tz().add(1, "month");
       const thisYear = now.format("YYYY年");
       const thisMonth = now.format("M月");
-      // const thisMonth = "12月";
+      // const thisMonth = "9月";
 
       const response = await notion.databases.query({
         database_id: fixedCostDBId.value(),
