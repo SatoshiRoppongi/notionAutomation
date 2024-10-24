@@ -28,45 +28,98 @@ const householdTopId = defineString("HOUSEHOLD_TOP_ID");
 exports.updateBalanceGage =
   onSchedule({
     timeZone: "Asia/Tokyo",
-    schedule: "0 0 * * *", // 毎日0時に実行
+    schedule: "0 2 * * *", // 毎日2時に実行
   }, async (context) => {
-    try {
     // Notionクライアントの初期化
-      const notion = new Client({auth: notionApiKey.value()});
-      // Notionからデータベースの情報を取得
+    const notion = new Client({auth: notionApiKey.value()});
+    // Notionからデータベースの情報を取得
+    const today = dayjs.tz();
+    const thisMonth9th = today.date(9);
 
-      const now = dayjs.tz().add(1, "month");
-      const thisYear = now.format("YYYY年");
-      const thisMonth = now.format("M月");
-      // const thisMonth = "9月";
+    // 基準月 今月10日を基準とする
+    const baseMonthDate = today.isAfter(thisMonth9th, "day") ?
+            today : today.subtract(1, "month");
 
-      // const pageId = householdTopId.value();
-      const blockId = "12934c95-cc30-80a0-a4cd-c9934f6913b3";
-      const response = await notion.blocks.update({
-        block_id: blockId,
-        heading_1: {
-          rich_text: [
-            {
-              text: {
-                content: "   [||||||||||]",
-              },
-              annotations: {
-                color: "green",
-              },
+    const startDate = baseMonthDate.date(10);
+    const endDate = startDate.add(1, "month");
+
+
+    const queryResults = await notion.databases.query({
+      database_id: balanceDBId.value(),
+      filter: {
+        and: [
+          {
+            property: "実行年月日",
+            date: {
+              on_or_after: startDate,
             },
-            {
-              text: {
-                content: " 100%",
-              },
+          },
+          {
+            property: "実行年月日",
+            date: {
+              before: endDate,
             },
-          ],
-        },
-      });
-    } catch (error) {
-      console.error("Error updating Notion databases:", error);
-      throw new functions.https
-          .HttpsError("internal", "Notion API call failed");
+          },
+        ],
+      },
+    });
+
+    const records = queryResults.results;
+
+    let income = 0;
+    let expense = 0;
+
+    for (const record of records) {
+      const properties = record.properties;
+      if (properties["ステータス"].formula.string == "未完了") {
+        // 未完了の処理`
+      } else {
+        // 本日実行 or 完了
+        const amount = properties["収支"].formula.number;
+        if (amount > 0) {
+          income += amount;
+        } else {
+          expense += amount;
+        }
+      }
     }
+
+    const batteryRemains = Math.round((income + expense) * 100 / income); // %
+
+    const remainPart = Math.round(batteryRemains / 10);
+    const complementPart = 10 - remainPart;
+
+    const batteryDisplay = "   [" +
+      "|".repeat(remainPart) +
+      " ".repeat(complementPart) +
+      "]";
+
+    const displayColor = batteryRemains >= 70 ? "green" :
+      batteryRemains >= 30 ? "yellow" :
+        "red";
+
+    // const pageId = householdTopId.value();
+    const blockId = "12934c95-cc30-80a0-a4cd-c9934f6913b3";
+    const response = await notion.blocks.update({
+      block_id: blockId,
+      heading_1: {
+        rich_text: [
+          {
+            text: {
+              content: batteryDisplay,
+            },
+            annotations: {
+              color: displayColor,
+            },
+          },
+          {
+            text: {
+              content: ` ${batteryRemains}%`,
+            },
+          },
+        ],
+      },
+    });
   });
 
 
