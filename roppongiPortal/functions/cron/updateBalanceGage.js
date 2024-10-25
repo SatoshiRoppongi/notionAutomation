@@ -15,8 +15,6 @@ dayjs.tz.setDefault("Asia/Tokyo");
 
 
 const notionApiKey = defineString("NOTION_API_KEY");
-// 固定費マスタのID
-const fixedCostDBId = defineString("FIXED_COST_DB_ID");
 // 収支DBのID
 const balanceDBId = defineString("BALANCE_DB_ID");
 
@@ -43,6 +41,11 @@ exports.updateBalanceGage =
     const startDate = baseMonthDate.date(10);
     const endDate = startDate.add(1, "month");
 
+    const startDateUTC = startDate.utc().startOf("day").
+        format("YYYY-MM-DDTHH:mm:ss[Z]");
+    const endDateUTC = endDate.utc().startOf("day").
+        format("YYYY-MM-DDTHH:mm:ss[Z]");
+
 
     const queryResults = await notion.databases.query({
       database_id: balanceDBId.value(),
@@ -51,13 +54,13 @@ exports.updateBalanceGage =
           {
             property: "実行年月日",
             date: {
-              on_or_after: startDate,
+              "on_or_after": startDateUTC,
             },
           },
           {
             property: "実行年月日",
             date: {
-              before: endDate,
+              "before": endDateUTC,
             },
           },
         ],
@@ -71,7 +74,7 @@ exports.updateBalanceGage =
 
     for (const record of records) {
       const properties = record.properties;
-      if (properties["ステータス"].formula.string == "未完了") {
+      if (properties["ステータス"].formula.string == "未実行") {
         // 未完了の処理`
       } else {
         // 本日実行 or 完了
@@ -84,7 +87,8 @@ exports.updateBalanceGage =
       }
     }
 
-    const batteryRemains = Math.round((income + expense) * 100 / income); // %
+    const batteryRemains = income > 0 ?
+      Math.round((income + expense) * 100 / income) : 0;
 
     const remainPart = Math.round(batteryRemains / 10);
     const complementPart = 10 - remainPart;
@@ -100,7 +104,7 @@ exports.updateBalanceGage =
 
     // const pageId = householdTopId.value();
     const blockId = "12934c95-cc30-80a0-a4cd-c9934f6913b3";
-    const response = await notion.blocks.update({
+    await notion.blocks.update({
       block_id: blockId,
       heading_1: {
         rich_text: [
