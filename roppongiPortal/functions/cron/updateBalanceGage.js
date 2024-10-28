@@ -2,7 +2,6 @@
 const {onSchedule} = require("firebase-functions/v2/scheduler");
 const {Client} = require("@notionhq/client");
 const {defineString} = require("firebase-functions/params");
-const functions = require("firebase-functions");
 const dayjs = require("dayjs");
 const utc = require("dayjs/plugin/utc");
 const timezone = require("dayjs/plugin/timezone");
@@ -17,10 +16,6 @@ dayjs.tz.setDefault("Asia/Tokyo");
 const notionApiKey = defineString("NOTION_API_KEY");
 // 収支DBのID
 const balanceDBId = defineString("BALANCE_DB_ID");
-
-// 家計簿トップページ
-const householdTopId = defineString("HOUSEHOLD_TOP_ID");
-
 
 // 固定費マスタを収支DBにコピーする関数
 exports.updateBalanceGage =

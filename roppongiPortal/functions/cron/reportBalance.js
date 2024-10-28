@@ -36,7 +36,6 @@ exports.reportBalance =
       schedule: "0 8 1 * *", // 毎月1日 8:00に実行
     }, async (context) => {
       const targetDate = dayjs.tz().subtract(1, "month");
-      // const targetDate = dayjs.tz();
 
       // Notionクライアントの初期化
       const notion = new Client({auth: notionApiKey.value()});
@@ -125,7 +124,6 @@ async function getReport(notion, targetDate) {
   };
   return allInfo;
 }
-
 
 /**
  * LINEにメッセージを送信する関数

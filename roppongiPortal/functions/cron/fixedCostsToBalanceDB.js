@@ -35,7 +35,7 @@ exports.fixedCostsToBalanceDB =
       const now = dayjs.tz().add(1, "month");
       const thisYear = now.format("YYYY年");
       const thisMonth = now.format("M月");
-      // const thisMonth = "9月";
+      // const thisMonth = "10月";
 
       const response = await notion.databases.query({
         database_id: fixedCostDBId.value(),

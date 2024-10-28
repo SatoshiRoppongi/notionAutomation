@@ -37,7 +37,6 @@ exports.makeSummary = onSchedule({
   schedule: "0 1 1 * *", // 毎月1日 1:00に実行
 }, async (context) => {
   const targetDate = dayjs.tz().subtract(1, "month");
-  // const targetDate = dayjs.tz();
 
   // Notionクライアントの初期化
   const notion = new Client({auth: notionApiKey.value()});
