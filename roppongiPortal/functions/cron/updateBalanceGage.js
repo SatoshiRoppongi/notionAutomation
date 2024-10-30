@@ -82,11 +82,13 @@ exports.updateBalanceGage =
       }
     }
 
-    const batteryRemains = income > 0 ?
-      Math.round((income + expense) * 100 / income) : 0;
+    const remainingAmount = income + expense;
 
-    const remainPart = Math.round(batteryRemains / 10);
-    const complementPart = 10 - remainPart;
+    const batteryRemains = income > 0 ?
+      Math.round(remainingAmount * 100 / income) : 0;
+
+    const remainPart = Math.round(batteryRemains / 5);
+    const complementPart = 20 - remainPart;
 
     const batteryDisplay = "   [" +
       "|".repeat(remainPart) +
@@ -97,10 +99,37 @@ exports.updateBalanceGage =
       batteryRemains >= 30 ? "yellow" :
         "red";
 
+    // 残り日数に関する情報
+    const remainingDays = endDate.diff(today, "day");
+    let remainingDaysComment;
+    if (remainingDays > 20) {
+      remainingDaysComment = "計画的にいきましょう🤓";
+    } else if (remainingDays > 10) {
+      remainingDaysComment = "大きな支出に注意しよう🧐";
+    } else {
+      remainingDaysComment = "もうちょっとだ！頑張れ！🔥";
+    }
+    const remainingDaysString =
+      `残り ${remainingDays} 日! ${remainingDaysComment}`;
+
+    // 残金に関する情報
+    const remainingAmountComment = batteryRemains >= 70 ?
+      "まだまだ余裕はある！無駄遣いはせず 🤩" :
+      batteryRemains >= 30 ? "支出オーバーしないか確認してね 🙂" :
+        batteryRemains > 0 ? "もうすぐ無くなりそうだよ🥶" :
+        "なくなったー😵 原因を話し合って、次回から気をつけよう";
+    const remainingAmountString =
+      `残り ${remainingAmount} 円! ${remainingAmountComment}`;
+
+
     // const pageId = householdTopId.value();
-    const blockId = "12934c95-cc30-80a0-a4cd-c9934f6913b3";
+    // blockIdはnotion上で6点リーダーをクリックして「ブロックへのリンク」から取得可能
+    const batteryBlockId = "12934c95-cc30-80a0-a4cd-c9934f6913b3";
+    const remainingDaysBlockId = "12934c95cc30800db401ce49e20f9db4";
+    const remainingAmountBlockId = "12934c95cc3080f08b97eb3d1adabbbe";
+    // ゲージの更新
     await notion.blocks.update({
-      block_id: blockId,
+      block_id: batteryBlockId,
       heading_1: {
         rich_text: [
           {
@@ -114,6 +143,32 @@ exports.updateBalanceGage =
           {
             text: {
               content: ` ${batteryRemains}%`,
+            },
+          },
+        ],
+      },
+    }),
+    // 残り日数の更新
+    await notion.blocks.update({
+      block_id: remainingDaysBlockId,
+      bulleted_list_item: {
+        rich_text: [
+          {
+            text: {
+              content: remainingDaysString,
+            },
+          },
+        ],
+      },
+    });
+    // 残金の更新
+    await notion.blocks.update({
+      block_id: remainingAmountBlockId,
+      bulleted_list_item: {
+        rich_text: [
+          {
+            text: {
+              content: remainingAmountString,
             },
           },
         ],
