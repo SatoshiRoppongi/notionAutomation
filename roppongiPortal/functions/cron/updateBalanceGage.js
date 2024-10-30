@@ -67,10 +67,23 @@ exports.updateBalanceGage =
     let income = 0;
     let expense = 0;
 
+    // 予定された収支
+    const balancePlannedList = [];
+    // 予定された収支の合計
+    let balancePlannedTotal = 0;
     for (const record of records) {
       const properties = record.properties;
       if (properties["ステータス"].formula.string == "未実行") {
-        // 未完了の処理`
+        // 未完了の処理
+        const amount = properties["収支"].formula.number;
+        balancePlannedList.push(
+            {
+              "date": properties["実行年月日"].formula.date.start,
+              "item": properties["項目名"].title[0].text.content,
+              "amount": amount,
+            },
+        );
+        balancePlannedTotal += amount;
       } else {
         // 本日実行 or 完了
         const amount = properties["収支"].formula.number;
@@ -122,11 +135,58 @@ exports.updateBalanceGage =
       `残り ${remainingAmount} 円! ${remainingAmountComment}`;
 
 
+    // 予定された収支の表示文言
+    const balancePlannedTotalString = `収支予定合計：${balancePlannedTotal} 円`;
+
+
+    // 予定された収支の表を構成する
+    balancePlannedList.sort((a, b) => new Date(a.date) - new Date(b.date));
+
+    const createCell = (value) => ({
+      type: "text",
+      text: {content: value},
+      annotations: {color: "default"},
+    });
+
+    const tableHeader = [
+      {
+        type: "table_row",
+        table_row: {
+          cells: [
+            [createCell("日付")],
+            [createCell("項目")],
+            [createCell("金額")],
+          ],
+        },
+      },
+    ];
+
+    const tableContents =
+    balancePlannedList.map((entry) => {
+      return {
+        type: "table_row",
+        table_row: {
+          cells: [
+            [createCell(entry.date)],
+            [createCell(entry.item)],
+            [createCell(entry.amount.toString())],
+          ],
+        },
+      };
+    });
+
+    const tableData = [...tableHeader, ...tableContents];
+
+    // console.log(JSON.stringify(tableData, null, " "));
+    // return;
+
     // const pageId = householdTopId.value();
     // blockIdはnotion上で6点リーダーをクリックして「ブロックへのリンク」から取得可能
     const batteryBlockId = "12934c95-cc30-80a0-a4cd-c9934f6913b3";
     const remainingDaysBlockId = "12934c95cc30800db401ce49e20f9db4";
     const remainingAmountBlockId = "12934c95cc3080f08b97eb3d1adabbbe";
+    const balancePlannedTotalBlockId = "12f34c95cc3080abb465c84a2573388d";
+    const expectedBalanceBlockId = "12f34c95cc308049a59bfe449031503d";
     // ゲージの更新
     await notion.blocks.update({
       block_id: batteryBlockId,
@@ -173,6 +233,46 @@ exports.updateBalanceGage =
           },
         ],
       },
+    });
+    // 予定された収支金額の更新
+    await notion.blocks.update({
+      block_id: balancePlannedTotalBlockId,
+      bulleted_list_item: {
+        rich_text: [
+          {
+            text: {
+              content: balancePlannedTotalString,
+            },
+          },
+        ],
+      },
+    });
+
+    const response = await notion.blocks.children.list({
+      block_id: expectedBalanceBlockId,
+      page_size: 50,
+    });
+    const tableBlock =
+      response.results.find((element) => element.type === "table");
+    if (tableBlock) {
+      await notion.blocks.delete({
+        block_id: tableBlock.id,
+      });
+    }
+    // 予定された収支の一覧
+    await notion.blocks.children.append({
+      block_id: expectedBalanceBlockId,
+      children: [
+        {
+          type: "table",
+          table: {
+            table_width: 3,
+            has_column_header: true,
+            has_row_header: false,
+            children: tableData,
+          },
+        },
+      ],
     });
   });
 
