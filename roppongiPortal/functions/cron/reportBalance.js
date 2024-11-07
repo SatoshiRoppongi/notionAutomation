@@ -75,6 +75,7 @@ async function getReport(notion, targetDate) {
   });
 
   const records = queryResults.results.map((rec) => rec.properties);
+  console.log(records);
 
   const createSummary = () => ({
     number: 0, // 金額
@@ -93,14 +94,14 @@ async function getReport(notion, targetDate) {
   const categorySumsObj = {};
   for (const record of records) {
     const categoryName = record["集計項目"].select.name;
-    const balance = record["収支"].number || 0;
+    const balance = Math.round(record["収支"].number || 0);
     // 特別な集計項目
     if (["支出", "変動費", "固定費", "収入"].includes(categoryName)) {
       summaryInfo[categoryName].number = balance;
-      summaryInfo[categoryName].prevMonthRate = record["前月比"].
-          formula.number * 100;
-      summaryInfo[categoryName].lastYearSameMonthRate = record["前年同期比"].
-          formula.number * 100;
+      summaryInfo[categoryName].prevMonthRate =
+        Math.round(record["前月比"].formula.number * 100);
+      summaryInfo[categoryName].lastYearSameMonthRate =
+        Math.round(record["前年同期比"].formula.number * 100);
     } else {
       // カテゴリごとの集計
       categorySumsObj[categoryName] = balance;
