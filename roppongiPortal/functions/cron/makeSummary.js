@@ -1,10 +1,6 @@
 const {onSchedule} = require("firebase-functions/v2/scheduler");
 const {Client} = require("@notionhq/client");
 const {defineString} = require("firebase-functions/params");
-const PDFDocument = require("pdfkit");
-const fs = require("fs");
-const path = require("path");
-const {Storage} = require("@google-cloud/storage");
 const dayjs = require("dayjs");
 const utc = require("dayjs/plugin/utc");
 const timezone = require("dayjs/plugin/timezone");
@@ -24,14 +20,11 @@ const storage = isEmulator ?
     new Storage(); // 本番環境
     */
 const notionApiKey = defineString("NOTION_API_KEY");
-const storage = new Storage();
-const bucketName = defineString("BUCKET_NAME");
 const balanceDBId = defineString("BALANCE_DB_ID");
 const summaryDBId = defineString("SUMMARY_DB_ID");
 
 
 // 月別・カテゴリ別集計を行い、MonthlySummaryDB, CategorySummaryDBに反映させる
-// 先月の収支をPDFにまとめ、storageに格納する
 exports.makeSummary = onSchedule({
   timeZone: "Asia/Tokyo",
   schedule: "0 1 1 * *", // 毎月1日 1:00に実行
@@ -72,41 +65,6 @@ exports.makeSummary = onSchedule({
 
   // Notionからデータベースから情報を取得して収支サマリーを生成する前月分
   const allInfo = await makeReport(notion, targetDate);
-
-  // PDF作成用
-  const data = {
-    columns: allInfo.detailReportsObj.detailReportHeaders,
-    rows: allInfo.detailReportsObj.detailReports,
-  };
-
-  // PDFドキュメントの作成
-  const doc = new PDFDocument();
-  const pdfPath = path.join("/tmp", "report.pdf");
-  const output = fs.createWriteStream(pdfPath);
-  doc.pipe(output);
-
-  const fontPath = path.join(__dirname, "NotoSansJP-VariableFont_wght.ttf");
-  doc.font(fontPath);
-
-  // タイトルと表を描画
-  doc.fontSize(7)
-      .text(`${targetDate.format("YYYY年M月")}の収支`, {align: "center"});
-  doc.moveDown();
-  createTable(doc, data);
-  doc.end();
-
-  await new Promise((resolve) => output.on("finish", resolve));
-
-  // Firebase Storageにアップロード
-  const destination = `reports/report-${targetDate.format("YYYYMM")}.pdf`;
-
-  await storage.bucket(bucketName.value()).upload(pdfPath, {
-    destination,
-    metadata: {
-      contentType: "application/pdf",
-    },
-  });
-
 
   const insertSummaryObj = allInfo.categorySumsObj;
   insertSummaryObj["収入"] = allInfo.summaryInfo.income;
@@ -317,58 +275,4 @@ async function makeReport(notion, targetDate) {
 
   return allInfo;
 }
-
-/**
- * 表を描画する関数
- * @param {PDFDocument} doc PDFドキュメント
- * @param {object} data 表の元となるデータ
- */
-function createTable(doc, data) {
-  const tableTop = 100;
-  const columnSpacing = 70;
-  const rowHeight = 15;
-  const columnWidth = 70; // 列幅の定義
-
-  let y = tableTop;
-
-  // ヘッダー行の罫線
-  data.columns.forEach((header, i) => {
-    const x = i * columnSpacing + 50;
-    doc.text(header, x, y);
-
-    // ヘッダーの下に二重線を描画
-    const lineY = y + rowHeight;
-
-    // 1本目の線
-    doc
-        .moveTo(x, lineY)
-        .lineTo(x + columnWidth, lineY)
-        .stroke();
-
-    // 2本目の線（少し下に引く）
-    const secondLineY = lineY + 2; // 間隔を2ポイントに設定
-    doc
-        .moveTo(x, secondLineY)
-        .lineTo(x + columnWidth, secondLineY)
-        .stroke();
-  });
-
-  y += rowHeight + 2; // 2本目の線の分だけ余白を追加
-
-  // データ行の描画と罫線
-  data.rows.forEach((row) => {
-    row.forEach((cell, i) => {
-      const x = i * columnSpacing + 50;
-      doc.text(cell, x, y);
-
-      // 各セルに罫線を描画
-      doc
-          .moveTo(x, y + rowHeight) // 罫線の開始点
-          .lineTo(x + columnWidth, y + rowHeight) // 罫線の終了点
-          .stroke(); // 線を描画
-    });
-    y += rowHeight;
-  });
-}
-
 

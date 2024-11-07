@@ -1,7 +1,6 @@
 const {onSchedule} = require("firebase-functions/v2/scheduler");
 const {Client} = require("@notionhq/client");
 const {defineString} = require("firebase-functions/params");
-const {Storage} = require("@google-cloud/storage");
 const axios = require("axios");
 const dayjs = require("dayjs");
 const utc = require("dayjs/plugin/utc");
@@ -22,8 +21,6 @@ const storage = isEmulator ?
     new Storage(); // 本番環境
     */
 const notionApiKey = defineString("NOTION_API_KEY");
-const storage = new Storage();
-const bucketName = defineString("BUCKET_NAME");
 const lineAccessToken = defineString("LINE_ACCESS_TOKEN");
 const lineGroupId = defineString("LINE_GROUP_ID");
 // const balanceDBId = defineString("BALANCE_DB_ID");
@@ -43,17 +40,9 @@ exports.reportBalance =
       const allInfo = await getReport(notion, targetDate);
       console.log(allInfo);
 
-      // PDFファイル名
-      const destination = `reports/report-${targetDate.format("YYYYMM")}.pdf`;
-
-      // アップロードしたファイルの公開URLを取得
-      const file = storage.bucket(bucketName.value()).file(destination);
-      await file.makePublic();
-      const publicUrl = file.publicUrl();
 
       // LINEグループにメッセージを送信
       await sendLineMessage(
-          publicUrl,
           allInfo.summaryInfo,
           allInfo.categorySumsObj,
           targetDate);
@@ -127,13 +116,12 @@ async function getReport(notion, targetDate) {
 
 /**
  * LINEにメッセージを送信する関数
- * @param {string} pdfUrl 公開されたPDFのURL
  * @param {obj} summaryInfo 収支サマリー情報
  * @param {obj} categorySumsObj カテゴリ別合計
  * @param {dayjs.Dayjs} targetDate 対象年月日
  */
 async function sendLineMessage(
-    pdfUrl, summaryInfo, categorySumsObj, targetDate) {
+    summaryInfo, categorySumsObj, targetDate) {
   const lineApiUrl = "https://api.line.me/v2/bot/message/push";
   const headers = {
     "Content-Type": "application/json",
@@ -166,8 +154,7 @@ async function sendLineMessage(
     messages: [
       {
         type: "text",
-        text: `!! これはテスト通知です。内容は正しくありません !!
-🤓${targetDate.format("YYYY年M月")}の収支だよ〜
+        text: `🤓${targetDate.format("YYYY年M月")}の収支だよ〜
 
 💴収支
   ${balance}円 ${balance > 0 ? "😆やった！プラスだ！" : "😭マイナスだよ〜"}
@@ -186,10 +173,6 @@ async function sendLineMessage(
   
 📝【カテゴリ別】
   ${categoryForReport}
-
-内訳の詳細は以下URLから確認してね！:
-${pdfUrl}
-
 `,
       },
     ],
